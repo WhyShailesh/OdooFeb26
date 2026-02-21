@@ -71,6 +71,4 @@ fleetflow/
 
 All routes except `/api/auth/*` and `/api/health` require `Authorization: Bearer <token>`.
 
-## License
 
-MIT
