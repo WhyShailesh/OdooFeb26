@@ -1,4 +1,4 @@
-// FleetFlow - Fleet & Logistics Management System
+// FleetFlow - Enterprise Fleet & Logistics Platform
 // PostgreSQL + Prisma ORM
 
 generator client {
@@ -15,6 +15,7 @@ enum Role {
   DISPATCHER
   SAFETY_OFFICER
   FINANCIAL_ANALYST
+  DRIVER
 }
 
 enum VehicleStatus {
@@ -38,73 +39,174 @@ enum TripStatus {
   cancelled
 }
 
-model User {
+enum IncidentType {
+  accident
+  damage
+  violation
+  overspeeding
+  late_delivery_risk
+}
+
+enum IncidentSeverity {
+  low
+  medium
+  high
+  critical
+}
+
+model Company {
   id        String   @id @default(cuid())
-  email     String   @unique
-  password  String
   name      String
-  role      Role
+  email     String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  users    User[]
+  vehicles Vehicle[]
+  drivers  Driver[]
+  trips    Trip[]
+  incidents Incident[]
+  notifications Notification[]
+
+  @@map("companies")
+}
+
+model User {
+  id         String   @id @default(cuid())
+  email      String   @unique
+  password   String
+  name       String
+  role       Role
+  companyId  String?
+  driverId   String?  @unique // if role is DRIVER, link to Driver record (1:1)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  company Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  driver  Driver?  @relation(fields: [driverId], references: [id], onDelete: SetNull)
 
   @@map("users")
 }
 
 model Vehicle {
-  id           String        @id @default(cuid())
-  model        String
-  licensePlate String        @unique
-  capacity     Float         // in kg or units
-  odometer     Float         @default(0)
-  status       VehicleStatus @default(available)
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  id             String        @id @default(cuid())
+  model          String
+  licensePlate   String        @unique
+  capacity       Float
+  odometer       Float         @default(0)
+  mileage        Float?        // km per liter (India: petrol/diesel)
+  fuelType       String?       // petrol | diesel
+  status         VehicleStatus @default(available)
+  latitude       Float?
+  longitude      Float?
+  speed          Float?        // km/h (live tracking)
+  lastLocationAt DateTime?
+  lastUpdated    DateTime?    // last GPS update
+  companyId      String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
 
-  trips          Trip[]
+  company         Company?          @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  trips           Trip[]
   maintenanceLogs MaintenanceLog[]
-  fuelLogs       FuelLog[]
+  fuelLogs        FuelLog[]
+  incidents       Incident[]
 
   @@map("vehicles")
 }
 
 model Driver {
-  id          String       @id @default(cuid())
-  name        String
-  licenseNo   String       @unique
-  licenseExpiry DateTime
-  safetyScore Float        @default(100) // 0-100
-  status      DriverStatus @default(available)
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  id                String       @id @default(cuid())
+  name              String
+  licenseNo         String       @unique
+  licenseExpiry     DateTime
+  safetyScore       Float        @default(100)
+  status            DriverStatus @default(available)
+  companyId         String?
+  complianceApproved Boolean?     // Safety Officer: fit/unfit
+  complianceNotes   String?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
 
-  trips Trip[]
+  company   Company?  @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  trips     Trip[]
+  incidents Incident[]
+  user      User?
 
   @@map("drivers")
 }
 
 model Trip {
-  id          String     @id @default(cuid())
-  reference   String     @unique
-  cargoWeight Float
-  origin      String
-  destination String
-  status      TripStatus @default(draft)
-  dispatchedAt DateTime?
-  completedAt  DateTime?
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  id                String     @id @default(cuid())
+  reference         String     @unique
+  cargoWeight       Float
+  origin            String
+  destination       String
+  originLat         Float?
+  originLng         Float?
+  destinationLat    Float?     // for geo-fencing auto-deliver (100m)
+  destinationLng    Float?
+  status            TripStatus @default(draft)
+  startOdometer     Float?
+  endOdometer       Float?
+  distance          Float?
+  routeHistory      Json?      // [{ lat, lng, at }] for path history
+  tripRevenue       Float?
+  estimatedFuelCost Float?     // auto: (distance/mileage)*fuelPrice ₹
+  safetyApprovedAt  DateTime?
+  dispatchedAt      DateTime?
+  arrivedAt         DateTime? // entered destination radius
+  deliveredAt       DateTime? // auto when within 100m
+  completedAt       DateTime?
+  companyId         String?
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
 
   vehicleId String
   vehicle   Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
   driverId  String
   driver    Driver  @relation(fields: [driverId], references: [id], onDelete: Restrict)
+  company   Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  incidents Incident[]
 
   @@map("trips")
 }
 
+model Incident {
+  id          String           @id @default(cuid())
+  type        IncidentType
+  description String
+  severity    IncidentSeverity @default(medium)
+  vehicleId   String?
+  driverId    String?
+  tripId      String?
+  companyId   String?
+  createdAt   DateTime         @default(now())
+
+  vehicle Vehicle? @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  driver  Driver?  @relation(fields: [driverId], references: [id], onDelete: SetNull)
+  trip    Trip?    @relation(fields: [tripId], references: [id], onDelete: SetNull)
+  company Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+
+  @@map("incidents")
+}
+
+model Notification {
+  id         String   @id @default(cuid())
+  message    String
+  roleTarget String?  // FLEET_MANAGER, DISPATCHER, SAFETY_OFFICER, FINANCIAL_ANALYST, DRIVER, or null = all
+  companyId  String?
+  isRead     Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  company Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+
+  @@map("notifications")
+}
+
 model MaintenanceLog {
   id        String   @id @default(cuid())
-  type      String   // oil_change, tire_replacement, brake_repair, etc.
+  type      String
   cost      Float
   date      DateTime
   notes     String?
@@ -117,15 +219,26 @@ model MaintenanceLog {
 }
 
 model FuelLog {
-  id        String   @id @default(cuid())
-  liters    Float
-  cost      Float
-  date      DateTime
+  id             String   @id @default(cuid())
+  liters         Float
+  cost           Float
+  date           DateTime
   odometerAtFill Float?
-  createdAt DateTime @default(now())
+  createdAt      DateTime @default(now())
 
   vehicleId String
   vehicle   Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
 
   @@map("fuel_logs")
+}
+
+// Indian fuel prices per city (admin-controlled; fallback if no live API)
+model FuelPrice {
+  id          String   @id @default(cuid())
+  city        String   @unique
+  petrolPrice Float    // ₹ per liter
+  dieselPrice Float
+  updatedAt   DateTime @updatedAt
+
+  @@map("fuel_prices")
 }

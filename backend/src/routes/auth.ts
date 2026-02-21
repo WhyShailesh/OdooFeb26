@@ -20,7 +20,7 @@ router.post(
     body('email').isEmail().normalizeEmail(),
     body('password').isLength({ min: 6 }),
     body('name').trim().notEmpty(),
-    body('role').isIn(['FLEET_MANAGER', 'DISPATCHER', 'SAFETY_OFFICER', 'FINANCIAL_ANALYST']),
+    body('role').isIn(['FLEET_MANAGER', 'DISPATCHER', 'SAFETY_OFFICER', 'FINANCIAL_ANALYST', 'DRIVER']),
   ],
   validation,
   async (req, res) => {

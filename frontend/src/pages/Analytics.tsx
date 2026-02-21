@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { BarChart3, Download, FileText } from 'lucide-react';
+import { BarChart3, Download, FileText, Users } from 'lucide-react';
 import { api } from '@/lib/utils';
+import { formatINR } from '@/lib/format';
 import { API_BASE_URL } from '@/config';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -41,12 +42,31 @@ interface AnalyticsData {
   };
 }
 
+interface DriverPerformanceItem {
+  driverId: string;
+  name: string;
+  totalDeliveries: number;
+  averageDeliveryTimeMinutes: number;
+  totalFuelCost: number;
+  totalDistanceKm: number;
+  efficiencyScore: number;
+}
+
 export function Analytics() {
   const [data, setData] = useState<AnalyticsData | null>(null);
+  const [driverPerf, setDriverPerf] = useState<{ ranking: DriverPerformanceItem[] } | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api<AnalyticsData>('/analytics/summary').then(setData).catch(console.error).finally(() => setLoading(false));
+    api<AnalyticsData>('/analytics/summary')
+      .then((d) => {
+        setData(d);
+        setError(null);
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load analytics'))
+      .finally(() => setLoading(false));
+    api<{ ranking: DriverPerformanceItem[] }>('/analytics/driver-performance').then(setDriverPerf).catch(() => setDriverPerf({ ranking: [] }));
   }, []);
 
   async function exportCsv() {
@@ -83,13 +103,24 @@ export function Analytics() {
     }
   }
 
-  if (loading || !data) {
+  if (loading) {
     return (
       <div className="flex items-center justify-center py-24">
         <div className="h-10 w-10 animate-spin rounded-full border-2 border-primary border-t-transparent" />
       </div>
     );
   }
+  if (error) {
+    return (
+      <div className="space-y-4">
+        <h1 className="text-3xl font-bold tracking-tight text-foreground">Analytics</h1>
+        <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {error}
+        </div>
+      </div>
+    );
+  }
+  if (!data) return null;
 
   const fuelChartData = Object.entries(data.chartData.fuelByMonth).map(([name, value]) => ({ name, fuel: value }));
   const maintChartData = Object.entries(data.chartData.maintenanceByMonth).map(([name, value]) => ({ name, maintenance: value }));
@@ -119,7 +150,7 @@ export function Analytics() {
             <CardTitle className="text-sm font-medium text-muted-foreground">Total Fuel Cost</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold">${data.totalFuelCost.toFixed(2)}</p>
+            <p className="text-2xl font-bold">{formatINR(data.totalFuelCost)}</p>
           </CardContent>
         </Card>
         <Card>
@@ -127,7 +158,7 @@ export function Analytics() {
             <CardTitle className="text-sm font-medium text-muted-foreground">Total Maintenance Cost</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold">${data.totalMaintenanceCost.toFixed(2)}</p>
+            <p className="text-2xl font-bold">{formatINR(data.totalMaintenanceCost)}</p>
           </CardContent>
         </Card>
         <Card>
@@ -167,7 +198,7 @@ export function Analytics() {
                   <XAxis dataKey="name" stroke="hsl(215, 20%, 55%)" fontSize={12} />
                   <YAxis stroke="hsl(215, 20%, 55%)" fontSize={12} />
                   <Tooltip contentStyle={{ backgroundColor: 'hsl(222, 47%, 8%)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px' }} />
-                  <Bar dataKey="fuel" fill="hsl(199, 89%, 48%)" name="Fuel ($)" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="fuel" fill="hsl(199, 89%, 48%)" name="Fuel (₹)" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             )}
@@ -189,7 +220,7 @@ export function Analytics() {
                   <XAxis dataKey="name" stroke="hsl(215, 20%, 55%)" fontSize={12} />
                   <YAxis stroke="hsl(215, 20%, 55%)" fontSize={12} />
                   <Tooltip contentStyle={{ backgroundColor: 'hsl(222, 47%, 8%)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px' }} />
-                  <Bar dataKey="maintenance" fill="hsl(262, 83%, 58%)" name="Maintenance ($)" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="maintenance" fill="hsl(262, 83%, 58%)" name="Maintenance (₹)" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             )}
@@ -219,10 +250,10 @@ export function Analytics() {
                 {data.vehicleStats.map((v) => (
                   <tr key={v.vehicleId} className="border-b border-border/50">
                     <td className="py-3 pr-4 font-mono">{v.licensePlate}</td>
-                    <td className="py-3 pr-4">${v.totalOperationalCost.toFixed(2)}</td>
-                    <td className="py-3 pr-4">${v.fuelCost.toFixed(2)}</td>
-                    <td className="py-3 pr-4">${v.maintenanceCost.toFixed(2)}</td>
-                    <td className="py-3 pr-4">${v.costPerKm.toFixed(2)}</td>
+                    <td className="py-3 pr-4">{formatINR(v.totalOperationalCost)}</td>
+                    <td className="py-3 pr-4">{formatINR(v.fuelCost)}</td>
+                    <td className="py-3 pr-4">{formatINR(v.maintenanceCost)}</td>
+                    <td className="py-3 pr-4">{formatINR(v.costPerKm)}</td>
                     <td className="py-3">{v.fuelEfficiency.toFixed(1)}</td>
                   </tr>
                 ))}
@@ -231,6 +262,46 @@ export function Analytics() {
           </div>
         </CardContent>
       </Card>
+
+      {driverPerf && driverPerf.ranking.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Users className="h-5 w-5 text-primary" />
+              Driver Performance Ranking
+            </CardTitle>
+            <CardDescription>Deliveries, avg time, fuel cost, efficiency score (India)</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left text-muted-foreground">
+                    <th className="pb-3 pr-4 font-medium">Driver</th>
+                    <th className="pb-3 pr-4 font-medium">Deliveries</th>
+                    <th className="pb-3 pr-4 font-medium">Avg time (min)</th>
+                    <th className="pb-3 pr-4 font-medium">Fuel cost</th>
+                    <th className="pb-3 pr-4 font-medium">Distance (km)</th>
+                    <th className="pb-3 font-medium">Efficiency</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {driverPerf.ranking.map((d) => (
+                    <tr key={d.driverId} className="border-b border-border/50">
+                      <td className="py-3 pr-4 font-medium">{d.name}</td>
+                      <td className="py-3 pr-4">{d.totalDeliveries}</td>
+                      <td className="py-3 pr-4">{d.averageDeliveryTimeMinutes}</td>
+                      <td className="py-3 pr-4">{formatINR(d.totalFuelCost)}</td>
+                      <td className="py-3 pr-4">{d.totalDistanceKm}</td>
+                      <td className="py-3">{d.efficiencyScore}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

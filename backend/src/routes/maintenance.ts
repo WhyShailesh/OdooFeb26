@@ -1,9 +1,16 @@
 import { Router } from 'express';
 import { body, param, validationResult } from 'express-validator';
 import { PrismaClient } from '@prisma/client';
+import { roleMiddleware } from '../middleware/auth.js';
+import { AuthRequest } from '../middleware/auth.js';
+import { CAN_MANAGE_MAINTENANCE } from '../config/roles.js';
 
 const router = Router();
 const prisma = new PrismaClient();
+
+function vehicleCompanyWhere(req: AuthRequest) {
+  return req.user?.companyId ? { vehicle: { companyId: req.user.companyId } } : {};
+}
 
 const validate = (req: any, res: any, next: any) => {
   const errors = validationResult(req);
@@ -11,11 +18,12 @@ const validate = (req: any, res: any, next: any) => {
   next();
 };
 
-router.get('/', async (req, res) => {
+router.get('/', async (req: AuthRequest, res) => {
   const vehicleId = req.query.vehicleId as string | undefined;
-  const where = vehicleId ? { vehicleId } : {};
+  const baseWhere = vehicleCompanyWhere(req);
+  const where = vehicleId ? { vehicleId, ...baseWhere } : baseWhere;
   const logs = await prisma.maintenanceLog.findMany({
-    where,
+    where: Object.keys(where).length ? where : undefined,
     include: { vehicle: true },
     orderBy: { date: 'desc' },
   });
@@ -24,6 +32,7 @@ router.get('/', async (req, res) => {
 
 router.post(
   '/',
+  roleMiddleware(...CAN_MANAGE_MAINTENANCE),
   [
     body('vehicleId').trim().notEmpty(),
     body('type').trim().notEmpty(),
@@ -32,10 +41,16 @@ router.post(
     body('notes').optional().trim(),
   ],
   validate,
-  async (req, res) => {
+  async (req: AuthRequest, res) => {
     const { vehicleId, type, cost, date, notes } = req.body;
-    const vehicle = await prisma.vehicle.findUnique({ where: { id: vehicleId } });
+    const vehicleWhere: any = { id: vehicleId };
+    if (req.user?.companyId) vehicleWhere.companyId = req.user.companyId;
+    const vehicle = await prisma.vehicle.findFirst({ where: vehicleWhere });
     if (!vehicle) return res.status(400).json({ error: 'Vehicle not found' });
+    const activeTrip = await prisma.trip.findFirst({
+      where: { vehicleId, status: { in: ['draft', 'dispatched'] } },
+    });
+    if (activeTrip) return res.status(400).json({ error: 'Cannot add maintenance while vehicle has active trip' });
 
     const [log] = await prisma.$transaction([
       prisma.maintenanceLog.create({
@@ -50,6 +65,7 @@ router.post(
 
 router.patch(
   '/:id/complete',
+  roleMiddleware(...CAN_MANAGE_MAINTENANCE),
   param('id').isString(),
   validate,
   async (req, res) => {
@@ -64,7 +80,7 @@ router.patch(
   }
 );
 
-router.delete('/:id', param('id').isString(), validate, async (req, res) => {
+router.delete('/:id', roleMiddleware(...CAN_MANAGE_MAINTENANCE), param('id').isString(), validate, async (req, res) => {
   await prisma.maintenanceLog.delete({ where: { id: req.params.id } });
   res.status(204).send();
 });

@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Plus, Pencil, Trash2, Users, AlertCircle } from 'lucide-react';
 import { api } from '@/lib/utils';
+import { useAuth } from '@/contexts/AuthContext';
+import { canManageDrivers, isReadOnly } from '@/lib/permissions';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -29,11 +31,15 @@ const STATUS_VARIANTS: Record<DriverStatus, 'success' | 'default' | 'secondary' 
 };
 
 export function Drivers() {
+  const { user } = useAuth();
+  const canEdit = user ? canManageDrivers(user.role) : false;
+  const readOnly = user ? isReadOnly(user.role) : false;
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Driver | null>(null);
   const [filter, setFilter] = useState('');
+  const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState({
     name: '',
     licenseNo: '',
@@ -84,9 +90,10 @@ export function Drivers() {
         await api('/drivers', { method: 'POST', body: JSON.stringify(payload) });
       }
       setOpen(false);
+      setError(null);
       load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed');
+      setError(err instanceof Error ? err.message : 'Failed');
     }
   }
 
@@ -94,9 +101,10 @@ export function Drivers() {
     if (!confirm('Delete this driver?')) return;
     try {
       await api(`/drivers/${id}`, { method: 'DELETE' });
+      setError(null);
       load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed');
+      setError(err instanceof Error ? err.message : 'Failed');
     }
   }
 
@@ -114,14 +122,25 @@ export function Drivers() {
     <div className="space-y-8 animate-fade-in">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-foreground">Driver Management</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-3xl font-bold tracking-tight text-foreground">Driver Management</h1>
+            {readOnly && <Badge variant="secondary" className="text-xs">Read-only</Badge>}
+          </div>
           <p className="mt-1 text-muted-foreground">Manage drivers and license status</p>
         </div>
-        <Button onClick={openCreate} className="gap-2">
-          <Plus className="h-4 w-4" />
-          Add Driver
-        </Button>
+        {canEdit && (
+          <Button onClick={openCreate} className="gap-2">
+            <Plus className="h-4 w-4" />
+            Add Driver
+          </Button>
+        )}
       </div>
+      {error && (
+        <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-2 text-sm text-destructive">
+          {error}
+          <button type="button" className="ml-2 underline" onClick={() => setError(null)}>Dismiss</button>
+        </div>
+      )}
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
@@ -169,14 +188,16 @@ export function Drivers() {
                       <Badge variant={STATUS_VARIANTS[d.status]}>{d.status.replace('_', ' ')}</Badge>
                     </TableCell>
                     <TableCell>
-                      <div className="flex gap-2">
-                        <Button variant="ghost" size="icon" onClick={() => openEdit(d)}>
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon" className="text-destructive" onClick={() => handleDelete(d.id)}>
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
+                      {canEdit && (
+                        <div className="flex gap-2">
+                          <Button variant="ghost" size="icon" onClick={() => openEdit(d)}>
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button variant="ghost" size="icon" className="text-destructive" onClick={() => handleDelete(d.id)}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}

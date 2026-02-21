@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Plus, MapPin, Send, Check, X, Truck, User } from 'lucide-react';
 import { api } from '@/lib/utils';
+import { INDIAN_CITIES } from '@/lib/format';
+import { useAuth } from '@/contexts/AuthContext';
+import { canDispatchTrips, isReadOnly } from '@/lib/permissions';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -17,6 +20,7 @@ interface Vehicle {
   model: string;
   licensePlate: string;
   capacity: number;
+  odometer?: number;
   status: string;
 }
 
@@ -40,11 +44,17 @@ interface Trip {
 }
 
 export function Trips() {
+  const { user } = useAuth();
+  const canDispatch = user ? canDispatchTrips(user.role) : false;
+  const readOnly = user ? isReadOnly(user.role) : false;
   const [trips, setTrips] = useState<Trip[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
+  const [completeOpen, setCompleteOpen] = useState<{ trip: Trip; vehicleOdometer: number } | null>(null);
+  const [completeForm, setCompleteForm] = useState({ startOdometer: '', endOdometer: '' });
+  const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [form, setForm] = useState({
     vehicleId: '',
@@ -106,27 +116,47 @@ export function Trips() {
         }),
       });
       setOpen(false);
+      setError(null);
       load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed');
+      setError(err instanceof Error ? err.message : 'Failed');
     }
   }
 
   async function dispatch(id: string) {
     try {
       await api(`/trips/${id}/dispatch`, { method: 'PATCH' });
+      setError(null);
       load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed');
+      setError(err instanceof Error ? err.message : 'Failed');
     }
   }
 
-  async function complete(id: string) {
+  function openComplete(trip: Trip) {
+    const vehicleOdometer = trip.vehicle?.odometer ?? 0;
+    setCompleteOpen({ trip, vehicleOdometer });
+    setCompleteForm({ startOdometer: String(vehicleOdometer), endOdometer: '' });
+  }
+
+  async function submitComplete() {
+    if (!completeOpen) return;
+    const start = Number(completeForm.startOdometer);
+    const end = Number(completeForm.endOdometer);
+    if (end <= start) {
+      setError('End odometer must be greater than start odometer');
+      return;
+    }
     try {
-      await api(`/trips/${id}/complete`, { method: 'PATCH', body: JSON.stringify({}) });
+      await api(`/trips/${completeOpen.trip.id}/complete`, {
+        method: 'PATCH',
+        body: JSON.stringify({ startOdometer: start, endOdometer: end }),
+      });
+      setError(null);
+      setCompleteOpen(null);
       load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed');
+      setError(err instanceof Error ? err.message : 'Failed');
     }
   }
 
@@ -134,9 +164,10 @@ export function Trips() {
     if (!confirm('Cancel this trip?')) return;
     try {
       await api(`/trips/${id}/cancel`, { method: 'PATCH' });
+      setError(null);
       load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed');
+      setError(err instanceof Error ? err.message : 'Failed');
     }
   }
 
@@ -148,14 +179,25 @@ export function Trips() {
     <div className="space-y-8 animate-fade-in">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-foreground">Trip Dispatch</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-3xl font-bold tracking-tight text-foreground">Trip Dispatch</h1>
+            {readOnly && <Badge variant="secondary" className="text-xs">Read-only</Badge>}
+          </div>
           <p className="mt-1 text-muted-foreground">Draft → Dispatched → Completed</p>
         </div>
-        <Button onClick={openCreate} className="gap-2" disabled={availableVehicles.length === 0 || availableDrivers.length === 0}>
-          <Plus className="h-4 w-4" />
-          New Trip
-        </Button>
+        {canDispatch && (
+          <Button onClick={openCreate} className="gap-2" disabled={availableVehicles.length === 0 || availableDrivers.length === 0}>
+            <Plus className="h-4 w-4" />
+            New Trip
+          </Button>
+        )}
       </div>
+      {error && (
+        <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-2 text-sm text-destructive">
+          {error}
+          <button type="button" className="ml-2 underline" onClick={() => setError(null)}>Dismiss</button>
+        </div>
+      )}
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
@@ -216,30 +258,32 @@ export function Trips() {
                       <Badge variant={statusVariant(t.status)}>{t.status}</Badge>
                     </TableCell>
                     <TableCell>
-                      <div className="flex gap-1">
-                        {t.status === 'draft' && (
-                          <>
-                            <Button size="sm" variant="outline" onClick={() => dispatch(t.id)}>
-                              <Send className="h-3 w-3 mr-1" />
-                              Dispatch
-                            </Button>
-                            <Button size="sm" variant="ghost" className="text-destructive" onClick={() => cancel(t.id)}>
-                              <X className="h-3 w-3" />
-                            </Button>
-                          </>
-                        )}
-                        {t.status === 'dispatched' && (
-                          <>
-                            <Button size="sm" onClick={() => complete(t.id)}>
-                              <Check className="h-3 w-3 mr-1" />
-                              Complete
-                            </Button>
-                            <Button size="sm" variant="ghost" className="text-destructive" onClick={() => cancel(t.id)}>
-                              <X className="h-3 w-3" />
-                            </Button>
-                          </>
-                        )}
-                      </div>
+                      {canDispatch && (
+                        <div className="flex gap-1">
+                          {t.status === 'draft' && (
+                            <>
+                              <Button size="sm" variant="outline" onClick={() => dispatch(t.id)}>
+                                <Send className="h-3 w-3 mr-1" />
+                                Dispatch
+                              </Button>
+                              <Button size="sm" variant="ghost" className="text-destructive" onClick={() => cancel(t.id)}>
+                                <X className="h-3 w-3" />
+                              </Button>
+                            </>
+                          )}
+                          {t.status === 'dispatched' && (
+                            <>
+                              <Button size="sm" onClick={() => openComplete(t)}>
+                                <Check className="h-3 w-3 mr-1" />
+                                Complete
+                              </Button>
+                              <Button size="sm" variant="ghost" className="text-destructive" onClick={() => cancel(t.id)}>
+                                <X className="h-3 w-3" />
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -248,6 +292,43 @@ export function Trips() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={completeOpen !== null} onOpenChange={(open) => !open && setCompleteOpen(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Complete Trip — Enter Odometer</DialogTitle>
+          </DialogHeader>
+          {completeOpen && (
+            <>
+              <p className="text-sm text-muted-foreground">Vehicle current odometer: {completeOpen.vehicleOdometer} km</p>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Start Odometer (km)</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={completeForm.startOdometer}
+                    onChange={(e) => setCompleteForm((f) => ({ ...f, startOdometer: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>End Odometer (km)</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={completeForm.endOdometer}
+                    onChange={(e) => setCompleteForm((f) => ({ ...f, endOdometer: e.target.value }))}
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setCompleteOpen(null)}>Cancel</Button>
+                <Button type="button" onClick={submitComplete}>Complete Trip</Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
@@ -296,12 +377,13 @@ export function Trips() {
               />
             </div>
             <div className="space-y-2">
-              <Label>Origin</Label>
-              <Input value={form.origin} onChange={(e) => setForm((f) => ({ ...f, origin: e.target.value }))} required />
+              <Label>Origin (e.g. Ahmedabad, Mumbai)</Label>
+              <Input value={form.origin} onChange={(e) => setForm((f) => ({ ...f, origin: e.target.value }))} list="cities" placeholder="Indian city" required />
+              <datalist id="cities">{INDIAN_CITIES.map((c) => <option key={c} value={c} />)}</datalist>
             </div>
             <div className="space-y-2">
-              <Label>Destination</Label>
-              <Input value={form.destination} onChange={(e) => setForm((f) => ({ ...f, destination: e.target.value }))} required />
+              <Label>Destination (e.g. Delhi, Bangalore)</Label>
+              <Input value={form.destination} onChange={(e) => setForm((f) => ({ ...f, destination: e.target.value }))} list="cities" placeholder="Indian city" required />
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setOpen(false)}>

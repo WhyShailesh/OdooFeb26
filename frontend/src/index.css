@@ -3,7 +3,8 @@
 @tailwind utilities;
 
 @layer base {
-  :root {
+  :root,
+  [data-theme="dark"] {
     --background: 222 47% 6%;
     --foreground: 210 40% 98%;
     --card: 222 47% 8%;
@@ -24,6 +25,26 @@
     --radius: 0.75rem;
   }
 
+  [data-theme="light"] {
+    --background: 0 0% 100%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 98%;
+    --card-foreground: 222 47% 11%;
+    --primary: 199 89% 42%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 47%;
+    --accent: 262 83% 58%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
+    --ring: 199 89% 42%;
+  }
+
   * {
     @apply border-border;
   }
@@ -38,13 +59,21 @@
   }
 }
 
-/* Glassmorphism */
+/* Glassmorphism (dark) / subtle (light) */
 .glass {
   @apply bg-white/5 backdrop-blur-xl border border-white/10;
 }
 
+[data-theme="light"] .glass {
+  @apply bg-black/5 border-black/10;
+}
+
 .glass-card {
   @apply bg-white/[0.06] backdrop-blur-2xl border border-white/10 rounded-xl;
+}
+
+[data-theme="light"] .glass-card {
+  @apply bg-black/[0.04] border-black/10;
 }
 
 /* Scrollbar */
@@ -59,4 +88,10 @@
 
 ::-webkit-scrollbar-thumb {
   @apply bg-white/20 rounded-full hover:bg-white/30;
+}
+
+/* Live map: custom colored markers (no default icon bg) */
+.leaflet-marker-icon.fleetflow-marker {
+  background: none !important;
+  border: none !important;
 }

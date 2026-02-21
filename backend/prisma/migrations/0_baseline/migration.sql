@@ -1,0 +1,1 @@
+-- Baseline: database was created with db push. No schema changes in this migration.

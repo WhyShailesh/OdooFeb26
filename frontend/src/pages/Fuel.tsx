@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Plus, Fuel as FuelIcon, Truck } from 'lucide-react';
 import { api } from '@/lib/utils';
+import { formatINR, formatDateIN } from '@/lib/format';
+import { useAuth } from '@/contexts/AuthContext';
+import { canManageFuel, isReadOnly } from '@/lib/permissions';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -25,10 +29,14 @@ interface FuelLog {
 }
 
 export function FuelLogsPage() {
+  const { user } = useAuth();
+  const canEdit = user ? canManageFuel(user.role) : false;
+  const readOnly = user ? isReadOnly(user.role) : false;
   const [logs, setLogs] = useState<FuelLog[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [vehicleFilter, setVehicleFilter] = useState<string>('all');
   const [form, setForm] = useState({
     vehicleId: '',
@@ -74,9 +82,10 @@ export function FuelLogsPage() {
         }),
       });
       setOpen(false);
+      setError(null);
       load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed');
+      setError(err instanceof Error ? err.message : 'Failed');
     }
   }
 
@@ -84,9 +93,10 @@ export function FuelLogsPage() {
     if (!confirm('Delete this fuel log?')) return;
     try {
       await api(`/fuel/${id}`, { method: 'DELETE' });
+      setError(null);
       load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed');
+      setError(err instanceof Error ? err.message : 'Failed');
     }
   }
 
@@ -98,14 +108,25 @@ export function FuelLogsPage() {
     <div className="space-y-8 animate-fade-in">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-foreground">Fuel & Expense</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-3xl font-bold tracking-tight text-foreground">Fuel & Expense</h1>
+            {readOnly && <Badge variant="secondary" className="text-xs">Read-only</Badge>}
+          </div>
           <p className="mt-1 text-muted-foreground">Track fuel and operational cost per vehicle</p>
         </div>
-        <Button onClick={openCreate} className="gap-2">
-          <Plus className="h-4 w-4" />
-          Add Fuel Log
-        </Button>
+        {canEdit && (
+          <Button onClick={openCreate} className="gap-2">
+            <Plus className="h-4 w-4" />
+            Add Fuel Log
+          </Button>
+        )}
       </div>
+      {error && (
+        <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-2 text-sm text-destructive">
+          {error}
+          <button type="button" className="ml-2 underline" onClick={() => setError(null)}>Dismiss</button>
+        </div>
+      )}
 
       <div className="grid gap-4 sm:grid-cols-2">
         <Card>
@@ -121,7 +142,7 @@ export function FuelLogsPage() {
             <CardTitle className="text-sm font-medium text-muted-foreground">Total Cost (filtered)</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold">${totalCost.toFixed(2)}</p>
+            <p className="text-2xl font-bold">{formatINR(totalCost)}</p>
           </CardContent>
         </Card>
       </div>
@@ -170,14 +191,16 @@ export function FuelLogsPage() {
                       <Truck className="h-4 w-4 text-muted-foreground" />
                       {l.vehicle.licensePlate}
                     </TableCell>
-                    <TableCell>{l.date.slice(0, 10)}</TableCell>
+                    <TableCell>{formatDateIN(l.date)}</TableCell>
                     <TableCell>{l.liters} L</TableCell>
-                    <TableCell>${l.cost.toFixed(2)}</TableCell>
+                    <TableCell>{formatINR(l.cost)}</TableCell>
                     <TableCell>{l.odometerAtFill ?? '—'}</TableCell>
                     <TableCell>
-                      <Button variant="ghost" size="sm" className="text-destructive" onClick={() => handleDelete(l.id)}>
-                        Delete
-                      </Button>
+                      {canEdit && (
+                        <Button variant="ghost" size="sm" className="text-destructive" onClick={() => handleDelete(l.id)}>
+                          Delete
+                        </Button>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -214,7 +237,7 @@ export function FuelLogsPage() {
                 <Input type="number" min={0} step={0.01} value={form.liters} onChange={(e) => setForm((f) => ({ ...f, liters: e.target.value }))} required />
               </div>
               <div className="space-y-2">
-                <Label>Cost ($)</Label>
+                <Label>Cost (₹)</Label>
                 <Input type="number" min={0} step={0.01} value={form.cost} onChange={(e) => setForm((f) => ({ ...f, cost: e.target.value }))} required />
               </div>
             </div>

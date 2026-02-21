@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Truck, AlertTriangle, Activity, Package, TrendingUp } from 'lucide-react';
+import { Truck, AlertTriangle, Activity, Package, TrendingUp, Target, IndianRupee } from 'lucide-react';
 import { api } from '@/lib/utils';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { formatINR } from '@/lib/format';
 import {
   AreaChart,
   Area,
@@ -20,6 +21,8 @@ interface DashboardData {
   pendingCargo: number;
   totalVehicles: number;
   totalDrivers: number;
+  deliverySuccessRate?: number;
+  dailyExpenseVsProfit?: { expense: number; profit: number; revenue: number };
   recentTrips: Array<{
     id: string;
     reference: string;
@@ -56,6 +59,8 @@ export function Dashboard() {
     { title: 'Maintenance Alerts', value: data.maintenanceAlerts, icon: AlertTriangle, color: 'text-amber-400', bg: 'from-amber-500/20 to-amber-600/5' },
     { title: 'Utilization Rate', value: `${data.utilizationRate}%`, icon: Activity, color: 'text-emerald-400', bg: 'from-emerald-500/20 to-emerald-600/5' },
     { title: 'Pending Cargo', value: data.pendingCargo, icon: Package, color: 'text-indigo-400', bg: 'from-indigo-500/20 to-indigo-600/5' },
+    ...(data.deliverySuccessRate != null ? [{ title: 'Delivery Success', value: `${data.deliverySuccessRate}%`, icon: Target, color: 'text-violet-400', bg: 'from-violet-500/20 to-violet-600/5' }] : []),
+    ...(data.dailyExpenseVsProfit != null ? [{ title: "Today's Profit", value: formatINR(data.dailyExpenseVsProfit.profit), icon: IndianRupee, color: 'text-green-400', bg: 'from-green-500/20 to-green-600/5' }] : []),
   ];
 
   const chartData = [
@@ -75,7 +80,7 @@ export function Dashboard() {
         <p className="mt-1 text-muted-foreground">Real-time fleet overview and key metrics</p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {cards.map(({ title, value, icon: Icon, color, bg }) => (
           <Card key={title} className="overflow-hidden transition-all hover:border-white/20">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -90,6 +95,34 @@ export function Dashboard() {
           </Card>
         ))}
       </div>
+
+      {data.dailyExpenseVsProfit != null && (
+        <Card className="overflow-hidden border-emerald-500/20 bg-gradient-to-br from-emerald-950/20 to-background">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <IndianRupee className="h-5 w-5 text-emerald-400" />
+              Today&apos;s profit & revenue
+            </CardTitle>
+            <CardDescription>Revenue minus expense for today</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Revenue</p>
+                <p className="mt-1 text-xl font-bold text-foreground">{formatINR(data.dailyExpenseVsProfit.revenue)}</p>
+              </div>
+              <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Expense</p>
+                <p className="mt-1 text-xl font-bold text-amber-400">{formatINR(data.dailyExpenseVsProfit.expense)}</p>
+              </div>
+              <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3">
+                <p className="text-xs font-medium uppercase tracking-wide text-emerald-400/90">Profit</p>
+                <p className="mt-1 text-xl font-bold text-emerald-400">{formatINR(data.dailyExpenseVsProfit.profit)}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
@@ -136,6 +169,7 @@ export function Dashboard() {
                       <p className="text-xs text-muted-foreground">
                         {trip.origin} → {trip.destination}
                       </p>
+                      <p className="text-xs text-muted-foreground">Weight: {trip.cargoWeight} kg</p>
                       {trip.vehicle && <p className="text-xs text-muted-foreground">Vehicle: {trip.vehicle.licensePlate}</p>}
                     </div>
                     <Badge variant={trip.status === 'completed' ? 'success' : trip.status === 'dispatched' ? 'default' : 'secondary'}>

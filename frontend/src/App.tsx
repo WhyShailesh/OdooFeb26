@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
+import { ThemeProvider } from '@/contexts/ThemeContext';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Login } from '@/pages/Login';
 import { Register } from '@/pages/Register';
@@ -10,6 +11,7 @@ import { Trips } from '@/pages/Trips';
 import { Maintenance } from '@/pages/Maintenance';
 import { FuelLogsPage } from '@/pages/Fuel';
 import { Analytics } from '@/pages/Analytics';
+import { LiveMap } from '@/pages/LiveMap';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -39,8 +41,9 @@ function PublicOnly({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <Routes>
+    <ThemeProvider>
+      <AuthProvider>
+        <Routes>
         <Route path="/login" element={<PublicOnly><Login /></PublicOnly>} />
         <Route path="/register" element={<PublicOnly><Register /></PublicOnly>} />
         <Route path="/" element={<ProtectedRoute><DashboardLayout /></ProtectedRoute>}>
@@ -51,9 +54,11 @@ export default function App() {
           <Route path="maintenance" element={<Maintenance />} />
           <Route path="fuel" element={<FuelLogsPage />} />
           <Route path="analytics" element={<Analytics />} />
+          <Route path="map" element={<LiveMap />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-    </AuthProvider>
+      </AuthProvider>
+    </ThemeProvider>
   );
 }

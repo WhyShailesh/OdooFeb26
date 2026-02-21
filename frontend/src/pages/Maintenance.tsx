@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Plus, Wrench, Truck } from 'lucide-react';
 import { api } from '@/lib/utils';
+import { formatINR, formatDateIN } from '@/lib/format';
+import { useAuth } from '@/contexts/AuthContext';
+import { canManageMaintenance, isReadOnly } from '@/lib/permissions';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -26,10 +30,14 @@ interface MaintenanceLog {
 }
 
 export function Maintenance() {
+  const { user } = useAuth();
+  const canEdit = user ? canManageMaintenance(user.role) : false;
+  const readOnly = user ? isReadOnly(user.role) : false;
   const [logs, setLogs] = useState<MaintenanceLog[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [vehicleFilter, setVehicleFilter] = useState<string>('all');
   const [form, setForm] = useState({ vehicleId: '', type: '', cost: '', date: new Date().toISOString().slice(0, 10), notes: '' });
 
@@ -69,9 +77,10 @@ export function Maintenance() {
         }),
       });
       setOpen(false);
+      setError(null);
       load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed');
+      setError(err instanceof Error ? err.message : 'Failed');
     }
   }
 
@@ -79,9 +88,10 @@ export function Maintenance() {
     if (!confirm('Delete this maintenance log?')) return;
     try {
       await api(`/maintenance/${id}`, { method: 'DELETE' });
+      setError(null);
       load();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed');
+      setError(err instanceof Error ? err.message : 'Failed');
     }
   }
 
@@ -92,14 +102,25 @@ export function Maintenance() {
     <div className="space-y-8 animate-fade-in">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-foreground">Maintenance</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-3xl font-bold tracking-tight text-foreground">Maintenance</h1>
+            {readOnly && <Badge variant="secondary" className="text-xs">Read-only</Badge>}
+          </div>
           <p className="mt-1 text-muted-foreground">Vehicle status → in_shop when log added</p>
         </div>
-        <Button onClick={openCreate} className="gap-2">
-          <Plus className="h-4 w-4" />
-          Add Log
-        </Button>
+        {canEdit && (
+          <Button onClick={openCreate} className="gap-2">
+            <Plus className="h-4 w-4" />
+            Add Log
+          </Button>
+        )}
       </div>
+      {error && (
+        <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-2 text-sm text-destructive">
+          {error}
+          <button type="button" className="ml-2 underline" onClick={() => setError(null)}>Dismiss</button>
+        </div>
+      )}
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
@@ -128,7 +149,7 @@ export function Maintenance() {
             </div>
           ) : (
             <>
-              <p className="mb-4 text-sm text-muted-foreground">Total (filtered): ${totalCost.toFixed(2)}</p>
+              <p className="mb-4 text-sm text-muted-foreground">Total (filtered): {formatINR(totalCost)}</p>
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -149,12 +170,14 @@ export function Maintenance() {
                       </TableCell>
                       <TableCell>{l.type}</TableCell>
                       <TableCell>{l.date.slice(0, 10)}</TableCell>
-                      <TableCell>${l.cost.toFixed(2)}</TableCell>
+                      <TableCell>{formatINR(l.cost)}</TableCell>
                       <TableCell className="text-muted-foreground">{l.notes ?? '—'}</TableCell>
                       <TableCell>
-                        <Button variant="ghost" size="sm" className="text-destructive" onClick={() => handleDelete(l.id)}>
-                          Delete
-                        </Button>
+                        {canEdit && (
+                          <Button variant="ghost" size="sm" className="text-destructive" onClick={() => handleDelete(l.id)}>
+                            Delete
+                          </Button>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}

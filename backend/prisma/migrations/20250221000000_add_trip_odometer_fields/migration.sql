@@ -1,0 +1,4 @@
+-- AlterTable
+ALTER TABLE "trips" ADD COLUMN "startOdometer" DOUBLE PRECISION,
+ADD COLUMN "endOdometer" DOUBLE PRECISION,
+ADD COLUMN "distance" DOUBLE PRECISION;
